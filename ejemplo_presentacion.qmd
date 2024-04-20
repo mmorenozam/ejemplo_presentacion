@@ -1,24 +1,204 @@
 ---
-title: "Untitled"
+title: "Análisis de Varianza de los pingüinos de Palmer"
+author: "Mauricio Moreno"
 format: revealjs
 editor: visual
 ---
 
-## Quarto
+```{r}
+#| warning: false
+#| message: false
+#| error: false
+#| echo: false
+#| eval: true
 
-Quarto enables you to weave together content and executable code into a finished presentation. To learn more about Quarto presentations see <https://quarto.org/docs/presentations/>.
+library(palmerpenguins)
+library(tidycomm)
+library(flextable)
+library(ggplot2)
+library(car)
+library(ggstatsplot)
+library(dplyr)
+library(rstatix)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+library(stringr)
+```
 
-## Bullets
+## Introducción
 
-When you click the **Render** button a document will be generated that includes:
+::: incremental
 
--   Content authored with markdown
--   Output from executable code
+-   Los datos usados en esta presentación provienen del paquete `palmerpenguins` de R.
 
-## Code
+-   Estos están compuestos de 8 variables medidas sobre 344 pingüinos de 3 especies (Adelie, Chinstrap y Gentoo).
 
-When you click the **Render** button a presentation will be generated that includes both content and the output of embedded code. You can embed code like this:
+-   El largo de la aleta de los pingüinos de Palmer difiere significativamente dependiendo de su especie.
+
+:::
+
+## Estadísticos descriptivos
 
 ```{r}
-1 + 1
+#| warning: false
+#| message: false
+#| error: false
+#| eval: true
+
+desc_tabla <- describe(penguins) %>%
+  flextable(.) %>%
+  colformat_double(., digits = 2)
+
+autofit(desc_tabla)
+```
+
+## Pruebas de los supuestos
+
+```{r}
+#| warning: false
+#| message: false
+#| error: false
+#| eval: true
+#| fig-width: 7
+#| fig-height: 5
+#| fig-align: center
+
+ggplot(penguins, aes(x = flipper_length_mm, fill = species))+
+  geom_density(alpha = 0.5)+
+  theme(legend.position = "none")+
+  labs(x = "largo de aleta (mm)", title = "Largo de aleta (mm) por especie de pingüino")
+
+```
+
+## Pruebas de los supuestos {visibility="uncounted"}
+
+```{r}
+#| warning: false
+#| message: false
+#| error: false
+#| eval: true
+#| fig-width: 8
+#| fig-height: 8
+#| fig-align: center
+
+lm1 <- lm(flipper_length_mm ~ species, data = penguins)
+par(mfrow = c(2, 2))
+plot(lm1)
+par(mfrow = c(1, 1))
+```
+
+## Pruebas de los supuestos {visibility="uncounted"}
+
+```{r}
+#| warning: false
+#| message: false
+#| error: false
+#| eval: true
+
+residuos <- resid(lm1)
+shapiro.test(residuos)
+
+leveneTest(lm1)
+```
+
+## ANOVA {.smaller}
+
+```{r}
+#| warning: false
+#| message: false
+#| error: false
+#| eval: true
+#| fig-width: 4
+#| fig-height: 4
+#| fig-align: center
+
+ggplot(penguins, aes(x = species, y = flipper_length_mm, fill = species))+
+  geom_boxplot(alpha = 0.5)+
+  theme(legend.position = "none")+
+  labs(y = "largo de aleta (mm)", x = NULL, title = "Largo de aleta (mm) por especie de pingüino")
+```
+
+Del gráfico podemos intuir dos ideas:
+
+1)    Es muy probable que el largo de la aleta entre las especies Adelie y Chinstrap no sean estadísticamente distintas, y
+
+2)    Dos observaciones en la especie Adelie, de acuerdo al criterio del rango intercuartílico, podrían ser outliers. Sin embargo, de las pruebas anteriores, podemos estar seguros que estas dos observaciones no apalancan la distribución fuera de la normalidad.
+
+## ANOVA {.smaller}
+
+De acuerdo a la tabla del ANOVA, confirmamos lo que ya nos pudo haber dado la idea de los análisis anteriores. Así, podemos concluir, que con un valor p de 0.000, rechazamos la hipótesis nula de la igualdad de las medias del largo de aleta entre las especies, y al menos una es distinta.
+
+
+```{r}
+#| warning: false
+#| message: false
+#| error: false
+#| eval: true
+
+tabla_anova <- as.data.frame(Anova(lm1))
+tabla_anova <- cbind(parametro = row.names(tabla_anova), tabla_anova)
+tabla_anova <- add_significance(tabla_anova, 
+                 p.col = "Pr(>F)", 
+                 output.col = " ",
+                 cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
+                 symbols = c("***", "**", "*", ".", "ns"))
+tabla_anova <- colformat_double(flextable(tabla_anova), digits = 3, j = c(2, 4, 5))
+tabla_anova <- add_footer_lines(tabla_anova, "Códigos Signif. 0 '***', 0.001 '**', 0.1 '*', 0.05 '.', 0.1 'ns'")
+autofit(tabla_anova)
+```
+
+## Pruebas post-hoc
+
+```{r}
+#| warning: false
+#| message: false
+#| error: false
+#| eval: true
+
+medias_marginales <- emmeans(lm1, specs = "species", type = "response")
+
+tukey_comp <- contrast(medias_marginales, specs = "species", method = "tukey")
+tukey_comp
+```
+
+Llevamos a cabo la prueba HSD de Tukey, y observamos que todas las pruebas de pares son significativamente distintas. Es decir, contrario a lo que nos dio a pensar el boxplot, existe de hecho diferencias entre el largo de las aletas de las especies Adelie y Chinstrap.
+
+## Pruebas post-hoc {visibility="uncounted"}
+
+```{r}
+#| warning: false
+#| message: false
+#| error: false
+#| eval: true
+
+grupos_tukey <- cld(medias_marginales)
+grupos_tukey
+```
+
+```{r}
+#| warning: false
+#| message: false
+#| error: false
+#| eval: true
+#| fig-width: 4
+#| fig-height: 4
+#| fig-align: center
+
+gruposvals <- as.data.frame(grupos_tukey)
+gruposvals$Pred <- factor(gruposvals$species, levels = c("Adelie", "Chinstrap", "Gentoo"))
+ggplot(gruposvals,
+       aes(x = species, 
+           y = emmean, 
+           fill = species)) +
+  geom_bar(stat = "identity", 
+           show.legend = F, 
+           color = "black")+
+  geom_errorbar(aes(ymin = lower.CL, 
+                    ymax = upper.CL), 
+                width=0.2)+
+  geom_text(aes(label=str_trim(.group), 
+                y = upper.CL, vjust=-0.5))+
+  labs(caption = "Intervalos de confianza al 95%\nde la predicción representados con barras de error",
+       x = NULL, y = "media predicha de largo de aleta (mm)")
 ```
